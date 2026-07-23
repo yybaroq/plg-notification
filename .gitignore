@@ -1,0 +1,4 @@
+# secrets — do not commit live tokens
+*.token
+.env
+token.json
