@@ -51,18 +51,24 @@ Tier A ↔ P0/P1, B ↔ P1, C ↔ P2, D ↔ suppress.
 |---|---|
 | 24h-new AND ai_core | 20 |
 | 48h-new AND ai_related | 15 |
-| plan = poc | 15 |
+| plan = poc **AND (QPS ≥ 0.001 OR ≤48h-new)** | 15 |
 | QPS ≥ 50 | 15 |
-| clusters ≥ 3 AND no card AND not individual | 12 |
+| clusters ≥ 3 AND no card AND not individual **AND QPS ≥ 0.001** | 12 |
 | error present | 10 |
 
 ## Priority rules
 
+**Dormancy gate (evaluated first, added 2026-07-24):** `QPS < 0.001 AND not
+≤48h-new AND no error` → force **P2**, regardless of static score. Static
+inventory (old clusters, lingering poc plan, card on file) cannot hold a
+P0/P1 slot. Re-entry is automatic the moment the tenant shows QPS again —
+that re-entry IS the true "win-back reopened" trigger.
+
 **P0** if any of: `QPS≥50` · `QPS≥10 & ai_core` · `24h-new & ai_core` ·
-`POC & (ai_core|ai_related)` · `total≥75 & not individual`.
+`POC & (ai_core|ai_related) & (QPS≥0.001 | ≤48h-new)` · `total≥75 & not individual`.
 
 **P1** if any of: `total≥45` · `48h-new & ai_related` · `24h-new & non_ai & enterprise` ·
-`clusters≥3 & no card & not individual` · `error`.
+`clusters≥3 & no card & not individual & QPS≥0.001` · `error`.
 
 Else **P2**.
 
@@ -76,14 +82,29 @@ Each Top-10 row shows the signals that fired, `·`-joined. Mapping
 | `QPSxx` / `低QPS` | QPS value / sub-1 QPS |
 | `AI-core` / `AI-rel` | AI category |
 | `24h新注册` / `48h新注册` | signup recency |
-| `POC` | plan = poc |
+| `POC` | plan = poc AND alive (QPS/≤48h) |
+| `旧POC` | plan = poc but dormant (legacy PoC leftover) |
 | `N集群` | cluster count ≥ 3 |
 | `绑卡` | credit card on file |
 | `报错` | error message present |
 
-## Known limitation
+## Known limitations
 
-Cluster count is **uncapped** as an input signal, so serverless batch creation
-can inflate Activity/Urgency (observed: Verdent 1558 clusters). Enrichment layer
-flags `clusters > 500` as "likely serverless batch, verify"; a hard cap in the
-SQL is a candidate fix.
+1. Cluster count is **uncapped** as an input signal, so serverless batch creation
+2. can inflate Activity/Urgency (observed: Verdent 1558 clusters). Enrichment layer
+3. flags `clusters > 500` as "likely serverless batch, verify"; a hard cap in the
+4. SQL is a candidate fix.
+5. 2. `tenant_avg_qps` is the only activity field in the source table — there is no
+   3. per-cluster creation date, so the recency gates use QPS + tenant signup age.
+   4. If per-cluster `created_at` becomes available, prefer "cluster created ≤14d"
+   5. as an additional POC-liveness condition.
+  
+   6. ## Case study: the Kissflow false positive (fixed 2026-07-24)
+  
+   7. Kissflow dev Org scored 60 → P1 for three straight days on `POC·3集群` with
+   8. **zero QPS**: Activity 18 (3 legacy clusters) + Fit 15 + Urgency 27 (lingering
+   9. poc plan +15, 3-clusters-no-card +12). All 60 points were static — the three
+   10. starter clusters dated from the 2023–2025 PoC and the poc plan was never
+   11. reset. Under the gates above it scores 33 and the dormancy rule holds it at
+   12. P2 until real QPS returns.
+   13. 
