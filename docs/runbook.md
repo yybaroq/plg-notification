@@ -52,3 +52,12 @@ auth helper in a terminal where Chrome is signed in to NexusCRM, then re-run.
   poc plan were misread as "reopened POC". Only fresh QPS reopens a win-back.)
 - Lead status vs category mismatch (e.g. Trickle Lead = "Open Opportunity" but
   account shows no opp) → surfaced for the owner to check.
+- **Domain mismatch → existing customer misread as net-new (DigiPlus, 2026-07-24):**
+  a tenant's login/signup domain can differ from its CRM Account website/legal
+  name (tenant `tbu.net` vs Account website `digiplus.com.ph`, legal name
+  "AB Leisure Exponent Inc", owner Andy Hsu, 16 opps incl. an open renewal in
+  Negotiation + a -$2.5M FY27Q1 ARR change = churn risk). Website-LIKE and
+  Name-LIKE both miss, so it fell into net-new. Fix (in the task Step 3a +
+  Step 7): if a domain has no Account hit, bridge via the `@domain` Leads'
+  Company / ConvertedAccountId and re-query Account; and a domain with any
+  Lead Status IN ('Open Opportunity','Converted') can NEVER be net-new.
