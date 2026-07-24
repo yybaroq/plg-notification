@@ -27,7 +27,7 @@ that sits on top of the PQL scoring model).
         │     reason|tenant_id) — the data transport   │
         └───────────────────────────┬──────────────────┘
                                      │
-       ② Cowork scheduled task  (daily 09:00, reads latest digest)
+       ② Cowork scheduled task  (daily 11:15, reads same-day 11:00 digest)
        parse → NexusCRM SOQL (Account/Opp/Lead) → Reo firmographic
        → SCORING.md semantic gates → day-over-day diff
                                      │
@@ -52,7 +52,7 @@ routing) lives in the enrichment task where it has CRM / Reo / SCORING context.*
 |---|---|
 | `sql/plg_daily_digest.sql` | The scoring + digest-text SQL run by the Anycross MySQL node. Source of truth for the PQL telemetry model (Activity/Fit/Urgency → P0/P1/P2). |
 | `workflow/anycross_workflow.md` | The 3-node Anycross workflow config (trigger / MySQL / custom-bot) and how to edit it. |
-| `automation/plg-digest-crm-check.md` | The daily-09:00 enrichment task prompt (verbatim). Produces the card + writes the Bitable history. |
+| `automation/plg-digest-crm-check.md` | The daily-11:15 enrichment task prompt (verbatim). Produces the card + writes the Bitable history. |
 | `bitable/history_table_schema.md` | Field schema of the "PLG Digest History" table + write/dedupe rules. |
 | `docs/scoring_model.md` | The P0/P1/P2 formula reference (act/fit/urg breakdown, trigger reasons). |
 | `docs/runbook.md` | Ops: editing the SQL, deploying, token recovery, known traps. |
@@ -67,7 +67,7 @@ routing) lives in the enrichment task where it has CRM / Reo / SCORING context.*
 |---|---|---|
 | Activity | 40 | QPS tier, cluster count (1/3/10 bands), credit card on file |
 | Fit | 30 | AI category (ai_core 30 / ai_related 20 / enterprise-domain non-AI 15 / individual 0) |
-| Urgency | 30 | 24h/48h new signup × AI category, POC plan, QPS≥50, multi-cluster no-card, error |
+| Urgency | 30 | 24h/48h new signup × AI category, POC plan (recency-gated), QPS≥50, multi-cluster no-card (recency-gated), error |
 
 Priority is **rule-triggered**, not a pure score threshold (see `sql/` and
 `docs/scoring_model.md`). This is the EMEA PQL Signal Model port — **distinct
@@ -82,36 +82,41 @@ fired (e.g. `QPS491·4-clusters`, `AI-core·POC`).
 ## Live resource IDs (as deployed, 2026-07)
 
 > Kept here for reference; move to env/secrets when the repo goes live. The
-> webhook is a group-bound Feishu custom-bot hook, not a broad credential.
-
-| Resource | ID |
-|---|---|
-| Anycross workflow | `7661478774365522886` (integration `7661478093248285654`) |
-| MySQL credential | "TiDB APAC RO" (default DB `information_schema`; table referenced as `regional_support.apac_active_tenants`) |
-| Source table | `regional_support.apac_active_tenants` |
-| Feishu group | "TiDB Bots" `oc_e31cc48f07e15c78d8f544068284d69d` |
-| Custom-bot webhook | `.../bot/v2/hook/c4914675-f48f-4913-b062-7e37c105857f` (keyword filter: message must contain "TiDB") |
-| Bitable history | base `PtJDb7NtYavifMsMRDAjLVd6pne`, table `tblIZha3B45t8Myw` |
-| Scheduled task | `plg-digest-crm-check` (cron `0 9 * * *`) |
-
----
-
-## Language state
-
-Card + Bitable values are **English** (as of 2026-07-23). The digest-text SQL
-still emits **Chinese** column labels (`队列`, `名称`, `分`, `原因`…) because it is
-the machine transport read by the enrichment task, not a human-facing surface.
-To fully English-ify the digest, edit the `CONCAT(...)` labels in
-`sql/plg_daily_digest.sql` and re-publish the workflow (one-line change; see
-`docs/runbook.md`).
-
----
-
-## Not yet automated / open items
-
-- Active-customer exclusion is applied at the **card layer only** (flag +
-  suggestion), not in the SQL. To hard-suppress, maintain an exclusion domain
-  list refreshed from CRM and add it to the SQL WHERE.
-- Cluster-count is uncapped in scoring → serverless batch creation can inflate
-  Urgency (e.g. Verdent 1558 clusters). Consider a cap.
-- Emails are sourced from NexusCRM Lead (HubSpot is frequently rate-limited).
+> > webhook is a group-bound Feishu custom-bot hook, not a broad credential.
+> >
+> > | Resource | ID |
+> > |---|---|
+> > | Anycross workflow | `7661478774365522886` (integration `7661478093248285654`) |
+> > | MySQL credential | "TiDB APAC RO" (default DB `information_schema`; table referenced as `regional_support.apac_active_tenants`) |
+> > | Source table | `regional_support.apac_active_tenants` |
+> > | Feishu group | "TiDB Bots" `oc_e31cc48f07e15c78d8f544068284d69d` |
+> > | Custom-bot webhook | `.../bot/v2/hook/c4914675-f48f-4913-b062-7e37c105857f` (keyword filter: message must contain "TiDB") |
+> > | Bitable history | base `PtJDb7NtYavifMsMRDAjLVd6pne`, table `tblIZha3B45t8Myw` |
+> > | Scheduled task | `plg-digest-crm-check` (cron `15 11 * * *`) |
+> >
+> > ---
+> >
+> > ## Language state
+> >
+> > Card + Bitable values are **English** (as of 2026-07-23). The digest-text SQL
+> > still emits **Chinese** column labels (`队列`, `名称`, `分`, `原因`…) because it is
+> > the machine transport read by the enrichment task, not a human-facing surface.
+> > To fully English-ify the digest, edit the `CONCAT(...)` labels in
+> > `sql/plg_daily_digest.sql` and re-publish the workflow (one-line change; see
+> > `docs/runbook.md`).
+> >
+> > ---
+> >
+> > ## Not yet automated / open items
+> >
+> > - Active-customer exclusion is applied at the **card layer only** (flag +
+> > -   suggestion), not in the SQL. To hard-suppress, maintain an exclusion domain
+> > -     list refreshed from CRM and add it to the SQL WHERE.
+> > - - Cluster-count is uncapped in scoring → serverless batch creation can inflate
+> >   -   Urgency (e.g. Verdent 1558 clusters). Consider a cap.
+> >   -   - Emails are sourced from NexusCRM Lead (HubSpot is frequently rate-limited).
+> >       - - ~~Static signals (poc plan, cluster count) score without any recency check~~
+> >         -   **Fixed 2026-07-24**: recency gates + dormancy demotion in the SQL (see
+> >         -     `docs/scoring_model.md`, Kissflow case study). Remaining nice-to-have: per-
+> >         -   cluster `created_at` in the source table for a "cluster created ≤14d" gate.
+> >         -   
