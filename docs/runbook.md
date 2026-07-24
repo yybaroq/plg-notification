@@ -3,11 +3,11 @@
 ## Daily cadence
 - **11:00 GMT+8** — Anycross workflow runs the scoring SQL and posts the 📊 digest
   text to "TiDB Bots". This is the data transport.
-- **09:00 GMT+8** — `plg-digest-crm-check` reads the *latest* digest (so at 09:00
-  it's yesterday's 11:00 one), enriches, writes the Bitable row, posts the 🔍 card.
+- **11:15 GMT+8** — `plg-digest-crm-check` reads the *same-day* 11:00 digest,
+  enriches, writes the Bitable row, posts the 🔍 card. (Moved from 09:00 on
+  2026-07-24 so the card always reflects the fresh digest.)
 
-Reading the previous day's digest at 09:00 is intentional (the day's fresh digest
-doesn't exist until 11:00). The card note always states the digest timestamp used.
+The card note always states the digest timestamp used.
 
 ## Editing the scoring / digest
 See `workflow/anycross_workflow.md`. Short version: preview → click node → 「编辑」
@@ -37,7 +37,8 @@ auth helper in a terminal where Chrome is signed in to NexusCRM, then re-run.
 - **Bitable batch-create returns null-ish jq on success** — verify via
   `record-search`, never blind-retry (double-inserts).
 - **Owner source**: always NexusCRM Account/Opp owner. Reo's `crm_owner` can be
-  stale (Trickle showed Qing Liu in Reo, actual Nexus owner Kevin Liu).
+  stale (Trickle showed Qing Liu in Reo; actual Nexus owner is Kenneth Lee,
+  corrected 2026-07-23 — an earlier note here said Kevin Liu, also stale).
 - **GROUP_CONCAT truncation**: the `SET_VAR(group_concat_max_len=4096)` hint on the
   outer SELECT is required; without it the 10-row list truncates ~1024 chars.
 - **HubSpot rate limits** frequently — source emails from NexusCRM Lead.
@@ -45,6 +46,9 @@ auth helper in a terminal where Chrome is signed in to NexusCRM, then re-run.
 
 ## Reconciliation flags the task raises
 - Active customer appearing in P0/P1 (e.g. Anteraja) → suggests exclusion.
-- Reo "ready to buy" on a win-back (Loadshare, Kissflow) → high-priority reactivation.
+- Reo "ready to buy" on a win-back → reactivation candidate, but it is an INTENT
+  tag (web/research activity), not product usage — never treat it as a live POC.
+  (Kissflow lesson 2026-07-24: 3 dormant 2023-2025 starter clusters + lingering
+  poc plan were misread as "reopened POC". Only fresh QPS reopens a win-back.)
 - Lead status vs category mismatch (e.g. Trickle Lead = "Open Opportunity" but
   account shows no opp) → surfaced for the owner to check.
