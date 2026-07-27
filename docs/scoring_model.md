@@ -90,21 +90,72 @@ Each Top-10 row shows the signals that fired, `·`-joined. Mapping
 
 ## Known limitations
 
-1. Cluster count is **uncapped** as an input signal, so serverless batch creation
-2. can inflate Activity/Urgency (observed: Verdent 1558 clusters). Enrichment layer
-3. flags `clusters > 500` as "likely serverless batch, verify"; a hard cap in the
-4. SQL is a candidate fix.
-5. 2. `tenant_avg_qps` is the only activity field in the source table — there is no
-   3. per-cluster creation date, so the recency gates use QPS + tenant signup age.
-   4. If per-cluster `created_at` becomes available, prefer "cluster created ≤14d"
-   5. as an additional POC-liveness condition.
-  
-   6. ## Case study: the Kissflow false positive (fixed 2026-07-24)
-  
-   7. Kissflow dev Org scored 60 → P1 for three straight days on `POC·3集群` with
-   8. **zero QPS**: Activity 18 (3 legacy clusters) + Fit 15 + Urgency 27 (lingering
-   9. poc plan +15, 3-clusters-no-card +12). All 60 points were static — the three
-   10. starter clusters dated from the 2023–2025 PoC and the poc plan was never
-   11. reset. Under the gates above it scores 33 and the dormancy rule holds it at
-   12. P2 until real QPS returns.
-   13. 
+1. **Cluster count is uncapped** as an input signal, so serverless batch creation
+   can inflate Activity/Urgency (observed: Verdent 1558 clusters). The enrichment
+   layer flags `clusters > 500` as "likely serverless batch, verify"; a hard cap in
+   the SQL is a candidate fix.
+2. `tenant_avg_qps` is the only activity field in the source table — there is no
+   per-cluster creation date, so the recency gates use QPS + tenant signup age.
+   If per-cluster `created_at` becomes available, prefer "cluster created ≤14d"
+   as an additional POC-liveness condition.
+3. **No firmographic weight at all** — see the structural blind spot below.
+
+## Structural blind spot: new signups can never reach the Top 10 (diagnosed 2026-07-27)
+
+The score is a pure function of **accumulated usage**. Revenue, funding stage,
+employee count and vertical carry **zero** weight, even though the New Tenant
+Monitor bot already resolves all four via AI enrichment at "high" confidence.
+
+Observed calibration, from the 2026-07-21 *APAC Tenants Monitor Daily Summary*
+(the only surface that exposes raw scoring inputs per tenant):
+
+| Tenant | clusters | QPS | card | plan | score |
+|---|---:|---:|---|---|---:|
+| PT. Tri Adi Bersama | 9 | 114.3 | no | on_demand | **82** |
+| KickAss Products | 4 | 106.6 | yes | on_demand | **70** |
+| Verdent AI | 1548 | N/A | no | on_demand | **65** |
+| CUPPASOFT LTD | 4 | 0.829 | no | on_demand | **57** |
+| Definition's Org | 3 | **0.029** | no | on_demand | **57** |
+| Coupang / Navi / Bizgital | 1 | 0 | no | poc | **40** |
+| SpaceKey / Airwallex | 1 | 0 | yes | on_demand | **35** |
+| Games24x7 | 0 | 0 | no | poc | **30** |
+
+Top-10 cutoff on 2026-07-27: **57**. A day-1 tenant has 0–1 clusters and 0 QPS,
+so its ceiling is **40** — it cannot clear the bar no matter how good the company
+is. Workato (Series E, $100–250M revenue, signed up 2026-07-17) never appeared
+once. ~15 new non-individual APAC tenants sign up per weekday and all are
+invisible. Coupang, Airwallex, Navi and Games24x7 — all on the HubSpot
+target-account list — score 30–40 for the same reason.
+
+Consequence: the Top 10 is a stable oligarchy of accumulated-usage accounts and
+its day-over-day delta is near zero **by construction**. A flat digest is the
+formula working as written, not a quiet market.
+
+The 2026-07-24 recency gates helped in one direction (they demoted dormant
+tenants) but did not change the candidate pool, so the vacated slots refilled
+from the same cohort.
+
+### Proposed fix
+
+Full proposal: `docs/scoring_change_request_2026-07-27.md`. Summary:
+
+- **Phase 1 (preferred, no re-tuning):** change the *selection*, not the score.
+  Emit two blocks — top 7 by score + top 5 new signups (≤72h, non-individual,
+  ranked by ICP fit). One extra SELECT plus a UNION.
+- **Phase 2 (only if needed):** add a firmographic block (cap +25), a decaying
+  new-signup boost (max +20), and +10 for a target-account match, with a ceiling
+  so a zero-usage tenant cannot outrank a live production account.
+
+Until either ships, the gap is covered **downstream** by Step 1b of the
+enrichment task, which reads the APAC New Tenant Monitor feed directly and
+renders a 🆕 section above the digest groups. That is a workaround, not a fix —
+it makes new signups *visible*, it does not make them *scored*.
+
+## Case study: the Kissflow false positive (fixed 2026-07-24)
+
+Kissflow dev Org scored 60 → P1 for three straight days on `POC·3集群` with
+**zero QPS**: Activity 18 (3 legacy clusters) + Fit 15 + Urgency 27 (lingering
+poc plan +15, 3-clusters-no-card +12). All 60 points were static — the three
+starter clusters dated from the 2023–2025 PoC and the poc plan was never
+reset. Under the gates above it scores 33 and the dormancy rule holds it at
+P2 until real QPS returns.
