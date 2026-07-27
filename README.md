@@ -52,9 +52,10 @@ routing) lives in the enrichment task where it has CRM / Reo / SCORING context.*
 |---|---|
 | `sql/plg_daily_digest.sql` | The scoring + digest-text SQL run by the Anycross MySQL node. Source of truth for the PQL telemetry model (Activity/Fit/Urgency → P0/P1/P2). |
 | `workflow/anycross_workflow.md` | The 3-node Anycross workflow config (trigger / MySQL / custom-bot) and how to edit it. |
-| `automation/plg-digest-crm-check.md` | The daily-11:15 enrichment task prompt (verbatim). Produces the card + writes the Bitable history. |
+| `automation/plg-digest-crm-check.md` | The weekday-11:15 enrichment task prompt (verbatim). Produces the card + writes the Bitable history. |
 | `bitable/history_table_schema.md` | Field schema of the "PLG Digest History" table + write/dedupe rules. |
-| `docs/scoring_model.md` | The P0/P1/P2 formula reference (act/fit/urg breakdown, trigger reasons). |
+| `docs/scoring_model.md` | The P0/P1/P2 formula reference (act/fit/urg breakdown, trigger reasons) + the accumulated-usage blind spot. |
+| `docs/scoring_change_request_2026-07-27.md` | Proposal to let new signups and target accounts reach the Top 10. |
 | `docs/runbook.md` | Ops: editing the SQL, deploying, token recovery, known traps. |
 
 ---
@@ -92,7 +93,9 @@ fired (e.g. `QPS491·4-clusters`, `AI-core·POC`).
 | Feishu group | "TiDB Bots" `oc_e31cc48f07e15c78d8f544068284d69d` |
 | Custom-bot webhook | `.../bot/v2/hook/c4914675-f48f-4913-b062-7e37c105857f` (keyword filter: message must contain "TiDB") |
 | Bitable history | base `PtJDb7NtYavifMsMRDAjLVd6pne`, table `tblIZha3B45t8Myw` |
-| Scheduled task | `plg-digest-crm-check` (cron `15 11 * * *`) |
+| Scheduled task | `plg-digest-crm-check` (cron `15 11 * * 1-5`) |
+| New-tenant feed | Feishu group "APAC New Tenant Monitor" `oc_f9e7a1c219d663d4f3e6bc0e12ff8d98` |
+| Tenants Monitor summary | Feishu group "APAC PLG/PQL Signal Ops Pilot" `oc_a3d2252841c435991c57ea521aa21497` (manual, irregular) |
 
 ---
 
@@ -115,6 +118,16 @@ To fully English-ify the digest, edit the `CONCAT(...)` labels in
 - Cluster-count is uncapped in scoring → serverless batch creation can inflate
   Urgency (e.g. Verdent 1558 clusters). Consider a cap.
 - Emails are sourced from NexusCRM Lead (HubSpot is frequently rate-limited).
+- **New signups cannot reach the Top 10** — the score has no firmographic term, so
+  a day-1 tenant caps at ~40 against a ~57 cutoff. Covered downstream by the 🆕
+  section in the enrichment task; the real fix is
+  `docs/scoring_change_request_2026-07-27.md` (Phase 1 = reserved slots, no
+  re-tuning).
+- **Target-account membership is not scored** and is only readable from a
+  manually-posted summary card. Coupang, Airwallex, Navi and Games24x7 all sit on
+  the list at 30–40 points.
+- Upstream `sales_owner` still routes PLG to legacy owners; all PLG leads now go
+  to Kenneth Lee at the enrichment layer.
 - ~~Static signals (poc plan, cluster count) score without any recency check~~
   **Fixed 2026-07-24**: recency gates + dormancy demotion in the SQL (see
   `docs/scoring_model.md`, Kissflow case study). Remaining nice-to-have: per-
